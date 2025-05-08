@@ -10,6 +10,7 @@ using static System.Runtime.InteropServices.JavaScript.JSType;
 using cli_life;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Drawing.Printing;
 
 namespace cli_life
 {
@@ -155,6 +156,30 @@ namespace cli_life
             }
             Console.WriteLine("Живых клеток: " + AliveC);
             return AliveC;
+        }
+
+
+        public static void CellsHistory(List<int> aliveCellsHistory, string filePath)
+        {
+            if (aliveCellsHistory == null || aliveCellsHistory.Count == 0)
+                return;
+
+            try
+            {
+                using (StreamWriter writer = new StreamWriter(filePath))
+                {
+                    for (int i = 0; i < aliveCellsHistory.Count - 1; i++)
+                    {
+                        writer.Write(i + ": ");
+                        writer.WriteLine(aliveCellsHistory[i]);
+                    }
+                }
+                Console.WriteLine("Состояние сохранено в файл: " + filePath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при сохранении: {ex.Message}");
+            }
         }
     }
 
@@ -416,6 +441,8 @@ namespace cli_life
 
         private static List<Pattern> patterns;
 
+        
+
         public class GraphBuilder
         {
             public static void PlotAliveCellsHistory(List<int> aliveCellsHistory, string filePath)
@@ -501,6 +528,139 @@ namespace cli_life
             }
         }
 
+        public static void GenerateDensityGraphs(int generations, int width, int height, int cellSize)
+        {
+            string graphPath = "../../../Plot.png";
+            string textPath = "../../../Data.txt";
+
+            // 1. Определяем плотности для исследования
+            double[] densities = { 0.1, 0.2, 0.3, 0.4, 0.5 };
+
+            // 2. Создаем списки для хранения истории
+            List<List<int>> allHistories = new List<List<int>>();
+
+            // 3. Запускаем симуляцию для каждой плотности
+            foreach (var density in densities)
+            {
+                var board = new Board(width, height, cellSize, density);
+                List<int> history = new List<int>();
+
+                for (int i = 0; i < generations; i++)
+                {
+                    history.Add(board.CountAliveCells());
+                    board.Advance();
+                }
+
+                allHistories.Add(history);
+                Board.CellsHistory(history, $"history_density_{density}.txt");
+
+                if (density == 0.1)
+                {
+                    Board.CellsHistory(history, textPath);
+                }
+            }
+
+            // 4. Создаем график с 5 кривыми
+            CreateMultiGraph(allHistories, densities, "multi_density_graph.png");
+
+            // 5. Создаем график только для первой плотности
+            CreateSingleGraph(allHistories[0], densities[0], graphPath);
+        }
+
+        private static void CreateMultiGraph(List<List<int>> histories, double[] densities, string filePath)
+        {
+            if (histories == null || histories.Count == 0) return;
+
+            // Параметры изображения
+            int width = 800;
+            int height = 500;
+            int margin = 50;
+            int graphWidth = width - 2 * margin;
+            int graphHeight = height - 2 * margin;
+
+            // Находим максимальное значение для масштабирования
+            int maxValue = histories.Max(h => h.Max());
+            if (maxValue == 0) maxValue = 1;
+
+            // Цвета для разных кривых
+            Color[] colors = { Color.Red, Color.Blue, Color.Green, Color.Purple, Color.Orange };
+
+            using (Bitmap bitmap = new Bitmap(width, height))
+            using (Graphics g = Graphics.FromImage(bitmap))
+            {
+                g.Clear(Color.White);
+
+                // Рисуем оси
+                using (Pen axisPen = new Pen(Color.Black, 2))
+                {
+                    g.DrawLine(axisPen, margin, margin, margin, height - margin);
+                    g.DrawLine(axisPen, margin, height - margin, width - margin, height - margin);
+                }
+
+                // Подписи осей
+                using (Font font = new Font("Arial", 10))
+                using (SolidBrush brush = new SolidBrush(Color.Black))
+                {
+                    g.DrawString("Поколение", font, brush, width / 2 - 30, height - margin + 20);
+                    g.DrawString("Количество клеток", font, brush, 10, margin - 20);
+                }
+
+                // Рисуем все графики
+                for (int d = 0; d < histories.Count; d++)
+                {
+                    var history = histories[d];
+                    using (Pen graphPen = new Pen(colors[d], 2))
+                    {
+                        for (int i = 0; i < history.Count - 1; i++)
+                        {
+                            int x1 = margin + (i * graphWidth / history.Count);
+                            int y1 = height - margin - (history[i] * graphHeight / maxValue);
+                            int x2 = margin + ((i + 1) * graphWidth / history.Count);
+                            int y2 = height - margin - (history[i + 1] * graphHeight / maxValue);
+
+                            g.DrawLine(graphPen, x1, y1, x2, y2);
+                        }
+                    }
+                }
+
+                // Легенда
+                for (int d = 0; d < histories.Count; d++)
+                {
+                    using (Brush brush = new SolidBrush(colors[d]))
+                    {
+                        g.FillRectangle(brush, margin + 100 + d * 100, height - margin + 20, 20, 10);
+                        g.DrawString($"ρ = {densities[d]}", new Font("Arial", 8), Brushes.Black,
+                            margin + 125 + d * 100, height - margin + 20);
+                    }
+                }
+
+                bitmap.Save(filePath, ImageFormat.Png);
+            }
+        }
+
+        private static void CreateSingleGraph(List<int> history, double density, string filePath)
+        {
+            // Сначала сохраняем график во временный файл
+            string tempFilePath = Path.GetTempFileName();
+            GraphBuilder.PlotAliveCellsHistory(history, tempFilePath);
+
+            // Затем загружаем его, добавляем текст и сохраняем в конечный файл
+            using (Bitmap bitmap = new Bitmap(tempFilePath))
+            using (Graphics g = Graphics.FromImage(bitmap))
+            {
+                g.DrawString($"Начальная плотность: {density}",
+                    new Font("Arial", 10),
+                    Brushes.Black,
+                    50, 20);
+
+                // Сохраняем в конечный файл
+                bitmap.Save(filePath, ImageFormat.Png);
+            }
+
+            // Удаляем временный файл
+            File.Delete(tempFilePath);
+        }
+
         static void Main(string[] args)
         {
             string patternsDir = Path.Combine(AppContext.BaseDirectory, "Patterns");
@@ -509,12 +669,15 @@ namespace cli_life
             Reset();
             string savedStatePath = "../../../saved_state.txt";
             string relativePath = Path.Combine("Life", "Shapes");
-            bool isPaused = true;
+            bool isPaused = true, ninetyPaused = false;
             int generation = 0, Cell1 = 0, Cell2 = 0, stability = 0;
             List<int> aliveCellsHistory = new List<int>();
 
+            GenerateDensityGraphs(generations: 100, width: 50, height: 20, cellSize: 1);
+
             Console.WriteLine("Управление:");
             Console.WriteLine("Пробел - пауза/продолжить");
+            Console.WriteLine("D - включить остановку через 100 поколений от начала");
             Console.WriteLine("S - сохранить текущее состояние");
             Console.WriteLine("L - загрузить сохранённое состояние");
             Console.WriteLine("U - загрузить заданную фигуру");
@@ -527,6 +690,22 @@ namespace cli_life
             {
                 if (!isPaused)
                 {
+                    if (ninetyPaused == true && generation >= 100) {
+                        if (aliveCellsHistory.Count > 0)
+                        {
+                            string graphPath = "../../../CurPlot.png";
+                            string textPath = "../../../CurData.txt";
+                            GraphBuilder.PlotAliveCellsHistory(aliveCellsHistory, graphPath);
+                            Console.WriteLine($"График сохранен в {graphPath}");
+                            Board.CellsHistory(aliveCellsHistory, textPath);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Нет данных для построения графика");
+                        }
+                        return;
+                    }
+
                     Console.Clear();
                     Console.WriteLine($"Поколение: {generation++}");
 
@@ -567,6 +746,10 @@ namespace cli_life
                             Console.WriteLine(isPaused ? "Пауза" : "Продолжено");
                             break;
 
+                        case ConsoleKey.D:
+                            ninetyPaused = true;
+                            break;
+
                         case ConsoleKey.S:
                             board.SaveToFile(savedStatePath);
                             Console.WriteLine($"Сохранено в {savedStatePath}");
@@ -599,9 +782,11 @@ namespace cli_life
                         case ConsoleKey.G: // Сохранение графика
                             if (aliveCellsHistory.Count > 0)
                             {
-                                string graphPath = "../../../plot.png";
+                                string graphPath = "../../../CurPlot.png";
+                                string textPath = "../../../CurData.txt";
                                 GraphBuilder.PlotAliveCellsHistory(aliveCellsHistory, graphPath);
                                 Console.WriteLine($"График сохранен в {graphPath}");
+                                Board.CellsHistory(aliveCellsHistory, textPath);
                             }
                             else
                             {
@@ -613,9 +798,11 @@ namespace cli_life
                         case ConsoleKey.Escape:
                             if (aliveCellsHistory.Count > 0)
                             {
-                                string graphPath = "../../../plot.png";
+                                string graphPath = "../../../CurPlot.png";
+                                string textPath = "../../../CurData.txt";
                                 GraphBuilder.PlotAliveCellsHistory(aliveCellsHistory, graphPath);
                                 Console.WriteLine($"График сохранен в {graphPath}");
+                                Board.CellsHistory(aliveCellsHistory, textPath);
                             }
                             else
                             {

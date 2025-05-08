@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using cli_life;
+using Microsoft.VisualStudio.TestPlatform.TestHost;
 
 namespace Test
 {
@@ -168,6 +169,68 @@ namespace Test
             int initialCount = board.CountAliveCells();
             for (int i = 0; i < 4; i++) board.Advance();
             Assert.AreEqual(initialCount, board.CountAliveCells());
+        }
+
+        [TestMethod]
+        public void Board_DetectsStabilizationCorrectly()
+        {
+            // Arrange - создаем стабильный блок
+            var board = new Board(10, 10, 1, 0);
+            board.Cells[1, 1].IsAlive = true;
+            board.Cells[1, 2].IsAlive = true;
+            board.Cells[2, 1].IsAlive = true;
+            board.Cells[2, 2].IsAlive = true;
+
+            var aliveHistory = new List<int>();
+
+            // Act
+            for (int i = 0; i < 5; i++)
+            {
+                board.Advance();
+                aliveHistory.Add(board.CountAliveCells());
+            }
+
+            // Assert - количество живых клеток не должно меняться
+            Assert.IsTrue(aliveHistory.All(count => count == 4),
+                "Alive cell count should remain stable at 4");
+        }
+
+        [TestMethod]
+        public void CellsHistory_FileContentIsCorrect()
+        {
+            var board = new Board(10, 10, 1, 0);
+
+            // Arrange
+            var history = new List<int> { 10, 15, 8, 3 }; // 4 элемента
+            string testFilePath = "cells_history_test.txt";
+
+            try
+            {
+                // Act
+                Board.CellsHistory(history, testFilePath);
+
+                // Assert
+                Assert.IsTrue(File.Exists(testFilePath), "Файл не был создан");
+
+                var lines = File.ReadAllLines(testFilePath);
+
+                // Проверяем, что записано на 1 элемент меньше (из-за условия i < aliveCellsHistory.Count - 1)
+                Assert.AreEqual(history.Count - 1, lines.Length, "Количество строк в файле неверное");
+
+                // Проверяем содержимое каждой строки
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    Assert.AreEqual($"{i}: {history[i]}", lines[i]);
+                }
+            }
+            finally
+            {
+                // Cleanup
+                if (File.Exists(testFilePath))
+                {
+                    File.Delete(testFilePath);
+                }
+            }
         }
     }
 }
